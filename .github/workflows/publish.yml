@@ -2,6 +2,13 @@ name: Publish in DockerHub
 
 on:  
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'pom.xml'
+
 
 jobs:
   publish:
@@ -13,11 +20,29 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
+      # 1. Primero extraemos la versión (para poder usarla después)
+      - name: Generate tag
+        id: project-version
+        run: echo "tag=$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)" >> $GITHUB_OUTPUT
+
+      # 2. Ejecutamos tests
       - name: Run tests
         run: mvn test
-      - name: Generate Docker image
-        run: mvn spring-boot:build-image -DskipTests -Dspring-boot.build-image.imageName=${{ secrets.DOCKERHUB_USERNAME }}/posts:v1
+
+      # 3. Login en DockerHub (antes de intentar subir nada)
       - name: Login to DockerHub
-        run: docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" -p "${{ secrets.DOCKERHUB_TOKEN }}" 
+        uses: docker/login-action@v3 # Es más seguro y limpio usar la acción oficial
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 4. Construimos la imagen usando el tag extraído en el paso 1
+      - name: Generate Docker image
+        run: |
+          mvn spring-boot:build-image -DskipTests \
+          -Dspring-boot.build-image.imageName=${{ secrets.DOCKERHUB_USERNAME }}/posts:${{ steps.project-version.outputs.tag }}
+
+      # 5. Push de la imagen con la versión correcta
       - name: Push image to DockerHub
-        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/posts:v1
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/posts:${{ steps.project-version.outputs.tag }}
+      
